@@ -128,6 +128,27 @@ def get_exp_name(config: dict):
     if numeric_input:
         exp_id = 'NUM_' + exp_id
 
+    connectome_type = config.get('connectome_type', '1layer')
+    if connectome_type == '2layer':
+        exp_id = exp_id.replace('NUM_', 'NUM_Conn2L_') if exp_id.startswith('NUM_') else 'Conn2L_' + exp_id
+
+    init_type = config.get('init_type', 'droso')
+    if init_type == 'random':
+        exp_id = exp_id.replace('NUM_', 'NUM_RandMask_') if exp_id.startswith('NUM_') else 'RandMask_' + exp_id
+    elif init_type == 'random_sparsity':
+        exp_id = exp_id.replace('NUM_', 'NUM_RandSp_') if exp_id.startswith('NUM_') else 'RandSp_' + exp_id
+    elif init_type == 'random_sparsity_rank':
+        exp_id = exp_id.replace('NUM_', 'NUM_RandSpRank_') if exp_id.startswith('NUM_') else 'RandSpRank_' + exp_id
+    elif init_type == 'random_sparsity_degree':
+        exp_id = exp_id.replace('NUM_', 'NUM_RandSpDeg_') if exp_id.startswith('NUM_') else 'RandSpDeg_' + exp_id
+
+    if config.get('match_connectome_weight_range'):
+        exp_id = exp_id.replace('NUM_', 'NUM_MatchRng_') if exp_id.startswith('NUM_') else 'MatchRng_' + exp_id
+    elif config.get('custom_weight_scale') is not None:
+        scale = config.get('custom_weight_scale')
+        tag = f'Scale{str(scale).replace(".", "p")}_'
+        exp_id = exp_id.replace('NUM_', f'NUM_{tag}') if exp_id.startswith('NUM_') else tag + exp_id
+
     return exp_id
 
 

@@ -10,7 +10,7 @@ from src.model.GNN_net import EDGE_MODEL_REGISTRY, get_GNN_model
 from src.model.RNN_net import RNN_MODELS, BaseRNN
 import torch
 import torch.nn as nn
-from src.model.custom_layers import SparseLinear
+from src.model.custom_layers import SparseLinear, Connectome2Layer, save_connectome_weights_csv
 from src.chess_utils.tokenizer import N_NODES as NUM_NODE
 
 
@@ -92,13 +92,35 @@ class GNN_Head(nn.Module):
                  sparse_type = None,
                  init_type = False,
                  dropout_rate=0.2,
-                 sparse_dim = 512):
+                 sparse_dim = 512,
+                 connectome_type='1layer',
+                 match_connectome_weight_range=False,
+                 custom_weight_scale=None,
+                 default_weight_scale=100.0,
+                 init_seed=None):
         super().__init__()
         self.gnn = gnn_
+        n_sensory = len(conn['sensory_idx'])
+        n_output = len(conn['output_idx'])
+        wr_kw = dict(
+            match_connectome_weight_range=match_connectome_weight_range,
+            custom_weight_scale=custom_weight_scale,
+            default_weight_scale=default_weight_scale,
+            init_seed=init_seed,
+        )
         if sparse_type == 'input_output':
-            self.input_fc = nn.Linear(fc_input_dim, len(conn['sensory_idx']))
-            self.sparse_fc = SparseLinear(len(conn['sensory_idx']), len(conn['output_idx']), sparse_prob_type=sparse_type,init_type = init_type, trainable=trainable_sparse,conn = conn)
-            self.out_fc = nn.Linear(len(conn['output_idx']), 2)
+            self.input_fc = nn.Linear(fc_input_dim, n_sensory)
+            if connectome_type == '2layer':
+                self.sparse_fc = Connectome2Layer(
+                    conn, init_type=init_type, trainable=trainable_sparse, **wr_kw,
+                )
+            else:
+                self.sparse_fc = SparseLinear(
+                    n_sensory, n_output,
+                    sparse_prob_type=sparse_type, init_type=init_type,
+                    trainable=trainable_sparse, conn=conn, **wr_kw,
+                )
+            self.out_fc = nn.Linear(n_output, 2)
         elif sparse_type == 'all_all':
             self.input_fc = nn.Linear(fc_input_dim, 2952)
             self.sparse_fc = SparseLinear(2952, 2952, sparse_prob_type=sparse_type,init_type = init_type, trainable=trainable_sparse,conn = conn)
@@ -123,7 +145,8 @@ class GNN_Head(nn.Module):
         x = self.dropout(x)
         x = nn.functional.relu(x)
         x = self.sparse_fc(x)
-        x = nn.functional.relu(x)
+        if not isinstance(self.sparse_fc, Connectome2Layer):
+            x = nn.functional.relu(x)
         x = self.out_fc(x)
 
         return x
@@ -315,7 +338,7 @@ def initialize_model(exp_config):
             gnn,
             cnn,
             # fc_input_dim,
-            trainable_sparse=exp_config.get('trainable_sparse', False),
+            trainable_sparse=bool(exp_config.get('trainable_sparse')),
             sparse_type=exp_config.get('sparse_type', None),
             init_type=exp_config.get('init_type', None),
             dropout_rate=exp_config.get('dropout_rate', 0.2), 
@@ -330,10 +353,22 @@ def initialize_model(exp_config):
                     conn,
                     gnn,
                     fc_input_dim,
-                    trainable_sparse = exp_config.get('trainable_sparse',False),
+                    trainable_sparse=bool(exp_config.get('trainable_sparse')),
                     sparse_type = exp_config.get('sparse_type',None),
                     init_type = exp_config.get('init_type',None),
-                    dropout_rate=exp_config.get('dropout_rate', 0.2),)
+                    dropout_rate=exp_config.get('dropout_rate', 0.2),
+                    connectome_type=exp_config.get('connectome_type', '1layer'),
+                    match_connectome_weight_range=exp_config.get('match_connectome_weight_range', False),
+                    custom_weight_scale=exp_config.get('custom_weight_scale'),
+                    default_weight_scale=exp_config.get('default_weight_scale', 100.0),
+                    init_seed=exp_config.get('seed'),
+                )
     if exp_config.get('numeric_input',False):
         model.numeric_input = True
+    if exp_config.get('save_connectome_weights_csv'):
+        csv_path = exp_config.get('connectome_weights_csv_path')
+        if not csv_path:
+            raise ValueError('connectome_weights_csv_path is required when save_connectome_weights_csv=True')
+        saved = save_connectome_weights_csv(model, csv_path)
+        print(f'Saved connectome weights to {saved}')
     return model
